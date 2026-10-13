@@ -34,7 +34,8 @@
   .intro h1 { font-size: clamp(42px, 12vw, 66px); }
   body.on-intro { background: transparent; }
   body.on-intro::before { content: ""; position: fixed; inset: 0; z-index: -1; background: linear-gradient(rgba(11,11,11,.45), rgba(11,11,11,.35) 35%, rgba(11,11,11,.9) 82%), url(images/rooftop.jpg) center / cover no-repeat; }
-  body.on-intro .intro { min-height: calc(100vh - 150px); min-height: calc(100svh - 150px); justify-content: flex-end; }
+  body.on-intro main { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
+  body.on-intro .intro { min-height: calc(100vh - 102px); min-height: calc(100svh - 102px); justify-content: flex-end; }
   body.on-intro .lede { color: #E9E4E2; }
   .lede { margin: 12px 0 0; font-size: 17px; line-height: 1.45; color: var(--soft); max-width: 36ch; }
   main { padding-block: 18px max(40px, env(safe-area-inset-bottom)); }
