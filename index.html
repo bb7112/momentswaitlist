@@ -32,6 +32,10 @@
   .wordmark span { color: var(--wine-bright); }
   .display { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 400; letter-spacing: -0.06em; line-height: 0.98; margin: 0; text-wrap: balance; }
   .intro h1 { font-size: clamp(42px, 12vw, 66px); }
+  body.on-intro { background: transparent; }
+  body.on-intro::before { content: ""; position: fixed; inset: 0; z-index: -1; background: linear-gradient(rgba(11,11,11,.45), rgba(11,11,11,.35) 35%, rgba(11,11,11,.9) 82%), url(images/rooftop.jpg) center / cover no-repeat; }
+  body.on-intro .intro { min-height: calc(100vh - 150px); min-height: calc(100svh - 150px); justify-content: flex-end; }
+  body.on-intro .lede { color: #E9E4E2; }
   .lede { margin: 12px 0 0; font-size: 17px; line-height: 1.45; color: var(--soft); max-width: 36ch; }
   main { padding-block: 18px max(40px, env(safe-area-inset-bottom)); }
 
@@ -96,7 +100,7 @@
   @media (prefers-reduced-motion: no-preference) { .step:not([hidden]) { animation: rise .25s ease; } @keyframes rise { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: none; } } }
 </style>
 </head>
-<body>
+<body class="on-intro">
   <header class="wrap">
     <div class="wordmark">moments<span>.</span></div>
   </header>
@@ -225,6 +229,7 @@
   function show(n) {
     steps.forEach(function (s) { s.hidden = Number(s.dataset.step) !== n; });
     progress.hidden = n === 0;
+    document.body.classList.toggle('on-intro', n === 0);
     for (var i = 0; i < bars.length; i++) bars[i].classList.toggle('on', i < n);
     current = n;
     window.scrollTo({ top: 0, behavior: 'smooth' });
