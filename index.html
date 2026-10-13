@@ -66,6 +66,10 @@
 
   .opts { display: flex; flex-direction: column; gap: 10px; }
   .opt { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 0 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--field); font-size: 17px; cursor: pointer; }
+  .step:has(.opts) { min-height: calc(100vh - 160px); min-height: calc(100svh - 160px); }
+  .step:has(.opts) .opts { flex: 1; }
+  .step:has(.opts) .opt { flex: 1; max-height: 112px; }
+  .step:has(.opts) .nav { margin-top: auto; padding-top: 6px; }
   .opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .opt .dot { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #6B6567; flex-shrink: 0; }
   .opt:has(input:checked) { background: var(--paper); color: var(--ink); border-color: var(--paper); }
