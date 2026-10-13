@@ -35,7 +35,7 @@
   body.on-intro { background: transparent; }
   .intro-bg { position: fixed; inset: 0; z-index: -1; display: none; background: var(--ink); }
   body.on-intro .intro-bg { display: block; }
-  .intro-bg i { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 1.2s ease; }
+  .intro-bg i { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity .3s ease; }
   .intro-bg i.on { opacity: 1; }
   .intro-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(11,11,11,.45), rgba(11,11,11,.35) 35%, rgba(11,11,11,.9) 82%); }
   body.on-intro main { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
@@ -242,7 +242,7 @@
     setInterval(function () {
       if (!document.body.classList.contains('on-intro')) return;
       slides[at].classList.remove('on'); at = (at + 1) % slides.length; slides[at].classList.add('on');
-    }, 2800);
+    }, 900);
   })();
 
   function show(n) {
