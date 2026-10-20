@@ -122,7 +122,9 @@
       case 'me': return viewAccount();
       case 'edit': return viewEdit();
       case 'u': return parts[1] === me.id ? go('#/me') : viewProfile(parts[1]);
-      case 'communities': return viewSoon('communities', 'Communities', 'Communities run by approved hosts, public or private, each with its own feed and chat. Coming in round 2.');
+      case 'communities': return viewCommunities();
+      case 'c': return parts[2] === 'chat' ? viewCommunityChat(parts[1]) : parts[2] === 'request' ? viewRequest(parts[1]) : viewCommunity(parts[1]);
+      case 'pitch': return viewPitch();
       case 'discover': return viewSoon('discover', 'Discover', 'Events around Miami by vibe, with a link to get tickets on the host\'s page. Coming in round 3.');
       default: return viewHome();
     }
@@ -409,7 +411,19 @@
           '<span class="t"><b class="clip">' + esc(x.notes.body) + '</b><span class="clip">' + (l ? esc((l.user_id === me.id ? 'You' : (lp ? lp.first_name : '')) + ': ' + l.body) : 'No messages yet') + '</span></span>' +
           '<span class="when">' + ago((l || x.notes).created_at) + '</span></a>';
       }).join('') : '<p class="empty">Join a plan and its group chat shows up here.</p>') +
-      '<div class="sec-label">COMMUNITIES</div><p class="empty" style="padding:16px 24px">Community chats arrive with communities in round 2.</p>';
+      '<div class="sec-label">COMMUNITIES</div><div id="cchats"><p class="empty" style="padding:16px 24px">Loading…</p></div>';
+    var comms = (await loadCommunities()).filter(function (c) { return c.state === 'member' || c.state === 'host'; });
+    var cl = {};
+    if (comms.length) {
+      var cm = await sb.from('community_messages').select('community_id, body, user_id, sender_name, created_at').in('community_id', comms.map(function (c) { return c.id; })).order('created_at', { ascending: false }).limit(300);
+      (cm.data || []).forEach(function (x) { if (!cl[x.community_id]) cl[x.community_id] = x; });
+      await getProfiles(Object.keys(cl).map(function (k) { return cl[k].user_id; }).filter(Boolean));
+    }
+    $('#cchats').innerHTML = comms.length ? comms.map(function (c) {
+      var l = cl[c.id], who = l ? (l.user_id === me.id ? 'You' : l.user_id ? (profileCache[l.user_id] || {}).first_name : l.sender_name) : '';
+      return '<a class="chat-row" href="#/c/' + c.slug + '/chat"><img src="' + esc(c.cover_url) + '" alt="" style="width:50px;height:50px;border-radius:12px;object-fit:cover;flex-shrink:0">' +
+        '<span class="t"><b class="clip">' + esc(c.name) + '</b><span class="clip">' + (l ? esc(who + ': ' + l.body) : 'No messages yet') + '</span></span><span class="when">' + (l ? ago(l.created_at) : '') + '</span></a>';
+    }).join('') : '<p class="empty" style="padding:16px 24px">Join a community and its chat shows up here.</p>';
   }
 
   async function viewChat(id, justJoined) {
@@ -472,9 +486,13 @@
       '<section class="section"><b>Your notes</b>' +
       (mine.length ? mine.map(function (n) { var st = noteState(n); return '<a class="list-card" href="#/note/' + n.id + '"><span class="clip" style="flex:1">' + esc(n.body) + ' <span class="muted">· ' + (st.left ? st.left + ' of ' + n.spots + ' left' : 'full') + '</span></span><span style="color:var(--grey);white-space:nowrap">Manage ›</span></a>'; }).join('') : '<p class="muted" style="margin:0;font-size:14px">You haven\'t posted a note yet.</p>') +
       '</section>' +
-      '<section class="section"><b>Your communities</b><p class="muted" style="margin:0;font-size:14px">Communities arrive in round 2.</p></section>' +
+      '<section class="section"><b>Your communities</b><div id="mycomms"></div></section>' +
       '<button class="signout" data-out>Sign out</button>';
     $('[data-out]').onclick = async function () { await sb.auth.signOut(); me = null; profile = null; profileCache = {}; go('#/'); };
+    var comms = (await loadCommunities()).filter(function (c) { return c.state === 'member' || c.state === 'host'; });
+    var box = $('#mycomms'); if (!box) return;
+    box.innerHTML = comms.length ? '<div class="comm-grid">' + comms.map(function (c) { return '<a href="#/c/' + c.slug + '"><img src="' + esc(c.cover_url) + '" alt=""><b>' + esc(c.name) + '</b></a>'; }).join('') + '</div>'
+      : '<a class="list-card" href="#/communities"><span>Find communities to join</span><span style="color:var(--grey)">›</span></a>';
   }
 
   async function viewProfile(id) {
@@ -530,6 +548,215 @@
   function viewSoon(tab, title, text) {
     setChrome(tab);
     app.innerHTML = '<header class="bar plain"><div class="title">' + esc(title) + '</div></header><div class="soon"><p>' + esc(text) + '</p></div>';
+  }
+
+  // ---------- communities ----------
+  var COMM_COLS = 'id, slug, name, bio, cover_url, is_private, host_id, host_name, base_members, created_at';
+  async function loadCommunities() {
+    var c = await sb.from('communities').select(COMM_COLS).order('base_members', { ascending: false });
+    var m = await sb.from('community_members').select('community_id, user_id, status');
+    var list = c.data || [], mem = m.data || [];
+    list.forEach(function (x) {
+      var rows = mem.filter(function (r) { return r.community_id === x.id; });
+      var mine = rows.filter(function (r) { return r.user_id === me.id; })[0];
+      x.members = x.base_members + rows.filter(function (r) { return r.status === 'member'; }).length;
+      x.state = x.host_id === me.id ? 'host' : mine ? mine.status : 'none';
+    });
+    return list;
+  }
+  function count(n) { return n.toLocaleString() + (n === 1 ? ' member' : ' members'); }
+  function commBtn(c) {
+    if (c.state === 'host') return '<span class="btn outline" style="font-size:13px;padding:7px 14px">Host</span>';
+    if (c.state === 'member') return '<button class="btn outline" style="font-size:13px;padding:7px 14px" data-leave-c="' + c.id + '">Joined ✓</button>';
+    if (c.state === 'requested') return '<span class="btn outline" style="font-size:13px;padding:7px 14px;color:var(--grey2)">Requested</span>';
+    if (c.is_private) return '<a class="btn outline" style="font-size:13px;padding:7px 12px;border-color:var(--ink)" href="#/c/' + c.slug + '/request">Request</a>';
+    return '<button class="btn black" style="font-size:13px;padding:8px 14px" data-join-c="' + c.id + '">Join</button>';
+  }
+  function bindCommBtns() {
+    $$('[data-join-c]').forEach(function (b) {
+      b.onclick = async function (e) {
+        e.preventDefault(); b.disabled = true; b.textContent = 'Joining…';
+        var r = await sb.rpc('join_community', { p_comm: b.dataset.joinC });
+        if (r.error) { b.disabled = false; b.textContent = 'Join'; toast('Couldn\'t join. Try again.'); return; }
+        toast('you\'re in. say hi in the chat.'); route();
+      };
+    });
+    $$('[data-leave-c]').forEach(function (b) {
+      b.onclick = async function (e) {
+        e.preventDefault();
+        if (!confirm('Leave this community?')) return;
+        await sb.from('community_members').delete().eq('community_id', b.dataset.leaveC).eq('user_id', me.id);
+        toast('you left the community.'); route();
+      };
+    });
+  }
+  function commRow(c, right) {
+    return '<div class="comm-row"><a class="comm-link" href="#/c/' + c.slug + '"><img src="' + esc(c.cover_url) + '" alt="">' +
+      '<span class="t"><b>' + esc(c.name) + '</b><span>' + count(c.members) + ' · ' + (c.is_private ? 'Private' : 'Public') + '</span></span></a>' + (right || '') + '</div>';
+  }
+
+  async function viewCommunities() {
+    loading('communities');
+    var list = await loadCommunities();
+    var mine = list.filter(function (c) { return c.state === 'member' || c.state === 'host'; });
+    var rest = list.filter(function (c) { return mine.indexOf(c) < 0; });
+    app.innerHTML = '<header class="bar" style="flex-direction:column;align-items:stretch;gap:10px;padding-left:16px;padding-right:16px">' +
+      '<div style="font-size:22px;font-weight:700">Communities</div>' +
+      '<label for="csearch" style="position:absolute;width:1px;height:1px;overflow:hidden">Search communities</label>' +
+      '<input id="csearch" class="search" placeholder="Search communities" autocomplete="off"></header>' +
+      '<div id="clist" style="padding-top:14px;display:flex;flex-direction:column;gap:18px"></div>';
+    function draw(q) {
+      var f = function (c) { return !q || (c.name + ' ' + (c.bio || '')).toLowerCase().indexOf(q) > -1; };
+      var pop = list.slice(0, 4).filter(f);
+      $('#clist').innerHTML =
+        (pop.length && !q ? '<section style="display:flex;flex-direction:column;gap:10px"><b style="font-size:16px;padding:0 16px">Popular communities</b><div class="pop-row">' +
+          pop.map(function (c) { return '<a class="pop" href="#/c/' + c.slug + '" style="background-image:linear-gradient(rgba(0,0,0,.2),rgba(0,0,0,.6)),url(' + esc(c.cover_url) + ')"><b>' + esc(c.name) + '</b><span>' + count(c.members) + '</span></a>'; }).join('') + '</div></section>' : '') +
+        (mine.filter(f).length ? '<section class="csec"><b>Your communities</b>' + mine.filter(f).map(function (c) { return commRow(c, c.state === 'host' ? '<span class="badge wine">Host</span>' : ''); }).join('') + '</section>' : '') +
+        (rest.filter(f).length ? '<section class="csec"><b>Explore</b>' + rest.filter(f).map(function (c) { return commRow(c, commBtn(c)); }).join('') + '</section>' : '') +
+        (q && !list.filter(f).length ? '<p class="empty">No communities match "' + esc(q) + '".</p>' : '') +
+        '<a class="pitch-link" href="#/pitch"><span style="display:flex;flex-direction:column;gap:2px"><b style="font-size:14px">Have an idea for a community?</b><span style="font-size:12px;color:var(--grey2)">Tell us about it and we\'ll reach out</span></span><span style="font-size:18px;color:var(--grey3)">›</span></a>';
+      bindCommBtns();
+    }
+    draw('');
+    $('#csearch').oninput = function () { draw(this.value.trim().toLowerCase()); };
+  }
+
+  async function getCommunity(slug) {
+    var list = await loadCommunities();
+    return list.filter(function (c) { return c.slug === slug; })[0] || null;
+  }
+  function commHeader(c, tab) {
+    var canSeeChat = c.state === 'member' || c.state === 'host';
+    return '<div class="c-cover"><img src="' + esc(c.cover_url) + '" alt=""><a class="c-back" href="#/communities" aria-label="Back">' + icon('back') + '</a></div>' +
+      '<div class="c-head"><div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:-30px"><img class="c-icon" src="' + esc(c.cover_url) + '" alt="">' + commBtn(c) + '</div>' +
+      '<b style="font-size:20px">' + esc(c.name) + '</b>' +
+      '<span style="font-size:13px;color:var(--grey)">Hosted by ' + esc(c.host_name) + ' · ' + count(c.members) + ' · ' + (c.is_private ? 'Private' : 'Public') + '</span>' +
+      (c.bio ? '<p style="margin:0;font-size:14px;line-height:1.4;color:var(--ink2)">' + esc(c.bio) + '</p>' : '') + '</div>' +
+      '<div class="c-tabs"><a href="#/c/' + c.slug + '" class="' + (tab === 'feed' ? 'on' : '') + '">Feed</a><a href="#/c/' + c.slug + '/chat" class="' + (tab === 'chat' ? 'on' : '') + '">Chat' + (canSeeChat ? '' : ' 🔒') + '</a></div>';
+  }
+
+  async function viewCommunity(slug) {
+    loading('communities');
+    var c = await getCommunity(slug);
+    if (!c) { app.innerHTML = backBar('#/communities', '') + '<p class="empty">Community not found.</p>'; return; }
+    var r = await sb.from('community_posts').select('*').eq('community_id', c.id).order('created_at', { ascending: false }).limit(50);
+    var posts = r.data || [];
+    app.innerHTML = commHeader(c, 'feed') +
+      '<div style="padding:12px 12px 0;display:flex;flex-direction:column;gap:12px">' +
+      (c.state === 'host' ? '<div class="c-post" style="gap:10px"><b style="font-size:14px">Post to your community</b><textarea class="input" id="cpost" rows="3" maxlength="1000" placeholder="share an update or a plan"></textarea><button class="btn black" style="padding:10px;font-size:14px" data-cpost>Post</button></div>' : '<span style="font-size:12px;color:var(--grey2)">Only the host posts here</span>') +
+      (posts.length ? posts.map(function (p) {
+        return '<article class="c-post"><span style="font-size:13px"><b>' + esc(p.author_name) + '</b> <span class="muted">· host · ' + ago(p.created_at) + '</span></span>' +
+          (p.image_url ? '<img src="' + esc(p.image_url) + '" alt="" style="width:100%;height:170px;border-radius:10px;object-fit:cover">' : '') +
+          '<span style="font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere">' + esc(p.body) + '</span>' +
+          '<span class="text-actions" style="font-size:12px;gap:20px"><button data-soon="Likes">♡ Like</button><button data-soon="Saves">Save</button></span></article>';
+      }).join('') : '<p class="empty">No posts yet.</p>') + '</div>';
+    bindCommBtns(); bindPosts();
+    if ($('[data-cpost]')) $('[data-cpost]').onclick = async function () {
+      var body = $('#cpost').value.trim(); if (!body) return;
+      this.disabled = true;
+      var ins = await sb.from('community_posts').insert({ community_id: c.id, author_id: me.id, author_name: profile.first_name, body: body });
+      if (ins.error) { this.disabled = false; toast('Couldn\'t post. Try again.'); return; }
+      toast('posted.'); route();
+    };
+  }
+
+  async function viewCommunityChat(slug) {
+    loading();
+    var c = await getCommunity(slug);
+    if (!c) { app.innerHTML = backBar('#/communities', '') + '<p class="empty">Community not found.</p>'; return; }
+    var isIn = c.state === 'member' || c.state === 'host';
+    if (!isIn) {
+      setChrome('communities');
+      app.innerHTML = commHeader(c, 'chat') + '<p class="empty">' + (c.state === 'requested' ? 'Your request is with the host. Once you\'re in, you\'ll see the chat here.' : 'Join ' + esc(c.name) + ' to see and send messages.') + '</p>';
+      bindCommBtns(); return;
+    }
+    var r = await sb.from('community_messages').select('*').eq('community_id', c.id).order('created_at').limit(500);
+    var msgs = r.data || [];
+    await getProfiles(msgs.map(function (m) { return m.user_id; }).filter(Boolean));
+    setChrome(null);
+    app.innerHTML = commHeader(c, 'chat') + '<div class="thread" id="thread">' + (msgs.length ? '' : '<span class="sys">Say hi to the community</span>') + '</div>' +
+      '<div class="composer"><form><label for="cmsg" style="position:absolute;width:1px;height:1px;overflow:hidden">Message</label><input id="cmsg" name="body" maxlength="1000" placeholder="Message ' + esc(c.name) + '" autocomplete="off"><button class="send" aria-label="Send">' + icon('send') + '</button></form></div>';
+    var box = $('#thread'), seen = {};
+    function add(m) {
+      if (seen[m.id]) return; seen[m.id] = 1;
+      var el = document.createElement('div');
+      if (m.user_id && m.user_id === me.id) { el.className = 'mine'; el.textContent = m.body; }
+      else {
+        var p = m.user_id ? (profileCache[m.user_id] || {}) : { first_name: m.sender_name };
+        var name = (p.first_name || '') + ((m.user_id && m.user_id === c.host_id) || (!m.user_id && m.sender_name === c.host_name) ? ' · host' : '');
+        el.className = 'msg';
+        el.innerHTML = avatar(p, 28) + '<div style="display:flex;flex-direction:column;gap:3px"><span class="who">' + esc(name) + '</span><span class="bub">' + esc(m.body) + '</span></div>';
+      }
+      box.appendChild(el);
+    }
+    msgs.forEach(add);
+    window.scrollTo(0, document.body.scrollHeight);
+    chatChannel = sb.channel('cchat-' + c.id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_messages', filter: 'community_id=eq.' + c.id }, async function (payload) {
+      if (payload.new.user_id) await getProfiles([payload.new.user_id]);
+      add(payload.new); window.scrollTo(0, document.body.scrollHeight);
+    }).subscribe();
+    $('.composer form').onsubmit = async function (e) {
+      e.preventDefault();
+      var body = this.body.value.trim(); if (!body) return;
+      this.body.value = '';
+      var ins = await sb.from('community_messages').insert({ community_id: c.id, user_id: me.id, body: body }).select().single();
+      if (ins.error) { toast('Didn\'t send. Try again.'); this.body.value = body; return; }
+      var s = $('.sys', box); if (s) s.remove();
+      add(ins.data); window.scrollTo(0, document.body.scrollHeight);
+    };
+  }
+
+  async function viewRequest(slug) {
+    loading();
+    var c = await getCommunity(slug);
+    if (!c) { go('#/communities'); return; }
+    setChrome(null);
+    app.innerHTML = '<div class="sheet-bg"><div class="sheet">' +
+      '<div style="display:flex;justify-content:flex-end"><a class="icon-btn" href="#/c/' + c.slug + '" aria-label="Close" style="font-size:20px;color:var(--grey)">✕</a></div>' +
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center"><img src="' + esc(c.cover_url) + '" alt="" style="width:64px;height:64px;border-radius:16px;object-fit:cover">' +
+      '<b style="font-size:20px">' + esc(c.name) + '</b><span style="font-size:13px;color:var(--grey)">' + count(c.members) + ' · Private · Hosted by ' + esc(c.host_name) + '</span>' +
+      '<span style="font-size:13px;color:var(--grey)">The host approves every member</span></div>' +
+      '<div class="sheet-box"><b style="font-size:15px">Want to join?</b><span style="font-size:13px;color:var(--grey);line-height:1.4">Send a request. If the host approves, you\'ll get a code.</span>' +
+      '<label for="why" style="font-size:12px;color:var(--grey2)">Optional: say why you want to join</label><textarea class="input" id="why" rows="2" maxlength="300" placeholder="I\'m building a skincare brand and new to Miami"></textarea>' +
+      (c.state === 'requested' ? '<span class="btn outline big" style="color:var(--grey2)">Request sent</span>' : '<button class="btn black big" style="padding:13px;font-size:15px" data-req>Request a code</button>') + '</div>' +
+      '<div style="text-align:center;font-size:12px;color:var(--grey2)">or</div>' +
+      '<div class="sheet-box"><label for="code" style="font-size:15px;font-weight:700">Already have a code?</label><div style="display:flex;gap:8px"><input class="input" id="code" placeholder="Enter code" autocapitalize="characters" style="letter-spacing:2px;height:44px"><button class="btn outline" style="border-color:var(--ink);border-radius:10px;padding:0 16px;font-size:14px" data-code>Join</button></div><p class="error" id="err"></p></div>' +
+      '</div></div>';
+    if ($('[data-req]')) $('[data-req]').onclick = async function () {
+      this.disabled = true;
+      var r = await sb.rpc('request_community', { p_comm: c.id, p_note: $('#why').value.trim() || null });
+      if (r.error) { this.disabled = false; toast('Couldn\'t send. Try again.'); return; }
+      toast('request sent to ' + c.host_name + '.'); go('#/communities');
+    };
+    $('[data-code]').onclick = async function () {
+      var code = $('#code').value.trim(); if (!code) return;
+      var r = await sb.rpc('join_community', { p_comm: c.id, p_code: code });
+      if (r.error) { toast('Couldn\'t join. Try again.'); return; }
+      if (r.data === 'wrong code') { $('#err').textContent = 'That code doesn\'t match. Check with the host.'; return; }
+      toast('you\'re in.'); go('#/c/' + c.slug);
+    };
+  }
+
+  function viewPitch() {
+    setChrome(null);
+    app.innerHTML = backBar('#/communities', 'Start a community') +
+      '<div class="step-body" style="padding:16px 16px 140px;gap:14px">' +
+      '<div style="display:flex;flex-direction:column;gap:4px"><b style="font-size:20px">Tell us your idea</b><span style="font-size:13px;color:var(--grey);line-height:1.4">We review every idea and reach out within a few days. Approved hosts can post to their community and to Discover.</span></div>' +
+      '<div class="field"><label class="lab" for="cn">Community name</label><input class="input" id="cn" maxlength="80" placeholder="Sunday Run Club Miami"></div>' +
+      '<div class="field"><label class="lab" for="ab">What\'s it about?</label><textarea class="input" id="ab" rows="3" maxlength="1000" placeholder="Who it\'s for and what you\'d do together"></textarea></div>' +
+      '<div class="field"><span class="lab">How often would you host?</span><div class="choices">' + choiceList('freq', ['Weekly', 'Every 2 weeks', 'Monthly'], 'Every 2 weeks') + '</div></div>' +
+      '<div class="field"><span class="lab">Public or private?</span><div class="choices">' + choiceList('priv', ['Public', 'Private (code)'], 'Public') + '</div></div>' +
+      '<div class="field"><label class="lab" for="soc">Your Instagram or TikTok <i>(optional)</i></label><input class="input" id="soc" maxlength="60" placeholder="@yourhandle"></div>' +
+      '</div><div class="step-foot"><div><p class="error" id="err"></p><button class="btn black big" data-send>Send my idea</button></div></div>';
+    $('[data-send]').onclick = async function () {
+      var name = $('#cn').value.trim(), about = $('#ab').value.trim();
+      if (!name) { $('#err').textContent = 'Give your community a name.'; return; }
+      if (!about) { $('#err').textContent = 'Tell us what it\'s about.'; return; }
+      this.disabled = true; this.textContent = 'Sending…';
+      var r = await sb.from('community_pitches').insert({ user_id: me.id, name: name, about: about, frequency: $('[name=freq]:checked').value, privacy: $('[name=priv]:checked').value, social: $('#soc').value.trim() || null });
+      if (r.error) { this.disabled = false; this.textContent = 'Send my idea'; $('#err').textContent = r.error.message; return; }
+      toast('idea sent. we\'ll reach out soon.'); go('#/communities');
+    };
   }
 
   // chat route with optional "/joined" flag
