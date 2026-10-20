@@ -115,7 +115,8 @@
     if (!me) return viewWelcome();
     if (!profile || !profile.rules_accepted_at) return viewOnboarding(parts[0] === 'join' ? Number(parts[1]) || 1 : 1);
     switch (parts[0]) {
-      case 'new': return viewNewNote();
+      case 'new': return viewNewNote(parts[1]);
+      case 'e': return viewEvent(parts[1]);
       case 'note': return viewNote(parts[1]);
       case 'chat': return viewChat(parts[1]);
       case 'chats': return viewChats();
@@ -125,7 +126,7 @@
       case 'communities': return viewCommunities();
       case 'c': return parts[2] === 'chat' ? viewCommunityChat(parts[1]) : parts[2] === 'request' ? viewRequest(parts[1]) : viewCommunity(parts[1]);
       case 'pitch': return viewPitch();
-      case 'discover': return viewSoon('discover', 'Discover', 'Events around Miami by vibe, with a link to get tickets on the host\'s page. Coming in round 3.');
+      case 'discover': return viewDiscover();
       default: return viewHome();
     }
   }
@@ -297,6 +298,7 @@
       '<span class="post-meta">' + esc([a.age_range, traveling ? null : a.neighborhood, ago(n.created_at)].filter(Boolean).join(' · ')) + '</span>' +
       (traveling ? '<span class="badge wine" style="align-self:flex-start;font-size:11px;padding:2px 8px">✈ Visiting Miami</span>' : '') + '</div></div>' +
       '<a class="post-body" href="#/note/' + n.id + '">' + esc(n.body) + '</a>' +
+      (n.event_id ? eventCard(eventCache[n.event_id]) : '') +
       ((n.place || n.starts_at) ? '<div class="post-where">' + (n.place ? '<span>' + esc(n.place) + '</span>' : '') + (n.starts_at ? '<span>' + esc(when(n.starts_at)) + '</span>' : '') + '</div>' : '') +
       spotBar(n) +
       '<div class="actions"><button data-soon="Likes" aria-label="Like">' + icon('heart') + '</button><a href="#/note/' + n.id + '" aria-label="Open" style="display:flex">' + icon('reply') + '</a><button data-soon="Saves" aria-label="Save">' + icon('save') + '</button><button data-share="' + n.id + '" aria-label="Share">' + icon('share') + '</button></div>' +
@@ -321,6 +323,7 @@
     var notes = r.data || [];
     var ids = []; notes.forEach(function (n) { ids.push(n.author_id); (n.note_members || []).forEach(function (m) { ids.push(m.user_id); }); });
     await getProfiles(ids);
+    await getEvents(notes.map(function (n) { return n.event_id; }));
     app.innerHTML = '<header class="home-head"><div class="wordmark">moments<span>.</span></div><div class="head-pill">' +
       '<button class="icon-btn" data-soon="Notifications" aria-label="Notifications">' + icon('bell') + '</button>' +
       '<a class="icon-btn" href="#/me" aria-label="Your account">' + avatar(profile, 32) + '</a></div></header>' +
@@ -330,14 +333,17 @@
   }
 
   // ---------- new note ----------
-  function viewNewNote() {
+  async function viewNewNote(eventId) {
+    if (eventId) await getEvents([eventId]);
+    var ev = eventId ? eventCache[eventId] : null;
     setChrome(null);
     var spots = 4;
     app.innerHTML = '<header class="bar plain"><a class="txt" href="#/">Cancel</a><div class="mid">New note</div><button class="btn black" style="font-size:15px;padding:8px 16px" data-post>Post</button></header>' +
       '<div class="compose">' +
       '<div style="display:flex;gap:10px">' + avatar(profile, 38) + '<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:0"><b style="font-size:14px">You</b>' +
       '<label for="note" style="font-size:12px;color:var(--grey2)">Write what, when and where</label>' +
-      '<textarea class="input" id="note" rows="4" maxlength="500" placeholder="anyone wanna go for a walk and matcha tomorrow? 9am, brickell"></textarea></div></div>' +
+      '<textarea class="input" id="note" rows="4" maxlength="500" placeholder="anyone wanna go for a walk and matcha tomorrow? 9am, brickell">' + (ev ? esc('anyone going to ' + ev.title.toLowerCase() + ' with me?') : '') + '</textarea></div></div>' +
+      (ev ? eventCard(ev) : '<a class="boxrow" href="#/discover" style="border-style:dashed"><span style="display:flex;flex-direction:column;gap:2px"><b>Attach an event</b><span class="hint">Optional · reshare something from Discover</span></span><span style="font-size:18px;color:var(--grey3)">›</span></a>') +
       '<div class="boxrow"><label for="place" style="font-size:15px;font-weight:700;white-space:nowrap">Where</label><input class="plain-input" id="place" maxlength="120" placeholder="optional" style="text-align:right"></div>' +
       '<div class="boxrow"><label for="when" style="font-size:15px;font-weight:700;white-space:nowrap">When</label><input class="plain-input" id="when" type="datetime-local" style="text-align:right"></div>' +
       '<div class="boxrow"><div style="display:flex;flex-direction:column;gap:2px"><b>Spots</b><span class="hint">How many people can join you</span></div>' +
@@ -351,7 +357,7 @@
       if (!body) { $('#err').textContent = 'Write what the plan is.'; return; }
       var w = $('#when').value;
       var btn = this; btn.disabled = true; btn.textContent = 'Posting…';
-      var r = await sb.from('notes').insert({ author_id: me.id, body: body, place: $('#place').value.trim() || null, starts_at: w ? new Date(w).toISOString() : null, spots: spots }).select().single();
+      var r = await sb.from('notes').insert({ author_id: me.id, event_id: ev ? ev.id : null, body: body, place: $('#place').value.trim() || null, starts_at: w ? new Date(w).toISOString() : null, spots: spots }).select().single();
       if (r.error) { btn.disabled = false; btn.textContent = 'Post'; $('#err').textContent = r.error.message; return; }
       toast('your note is up.'); go('#/');
     };
@@ -364,12 +370,14 @@
     if (!r.data) { app.innerHTML = backBar('#/', 'Note') + '<p class="empty">This plan was removed.</p>'; return; }
     var n = r.data, st = noteState(n), a;
     await getProfiles([n.author_id].concat(st.members));
+    await getEvents([n.event_id]);
     a = profileCache[n.author_id] || {};
     var going = st.members.map(function (u) { return profileCache[u]; }).filter(Boolean);
     app.innerHTML = backBar('#/', 'Note', st.mine ? '' : '<button class="act" data-soon="Reports">··· Report</button>') +
       '<article class="card-white">' +
       '<a class="person" href="#/u/' + n.author_id + '">' + avatar(a, 40) + '<span style="font-size:14px"><b>' + esc(a.first_name || '') + '</b> <span class="muted">· ' + esc([a.age_range, place(a), ago(n.created_at)].join(' · ')) + '</span></span></a>' +
       '<p style="margin:0;font-size:16px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere">' + esc(n.body) + '</p>' +
+      (n.event_id ? eventCard(eventCache[n.event_id]) : '') +
       ((n.place || n.starts_at) ? '<div class="post-where" style="margin:0">' + (n.place ? '<span>' + esc(n.place) + '</span>' : '') + (n.starts_at ? '<span>' + esc(when(n.starts_at)) + '</span>' : '') + '</div>' : '') +
       spotBar(n, true) +
       '<div class="text-actions"><button data-soon="Likes">♡ Like</button><button data-soon="Saves">Save</button><button data-share="' + n.id + '">Share</button></div></article>' +
@@ -487,9 +495,13 @@
       (mine.length ? mine.map(function (n) { var st = noteState(n); return '<a class="list-card" href="#/note/' + n.id + '"><span class="clip" style="flex:1">' + esc(n.body) + ' <span class="muted">· ' + (st.left ? st.left + ' of ' + n.spots + ' left' : 'full') + '</span></span><span style="color:var(--grey);white-space:nowrap">Manage ›</span></a>'; }).join('') : '<p class="muted" style="margin:0;font-size:14px">You haven\'t posted a note yet.</p>') +
       '</section>' +
       '<section class="section"><b>Your communities</b><div id="mycomms"></div></section>' +
+      '<section class="section"><b>Saved</b><div id="mysaved" style="display:flex;flex-direction:column;gap:8px"></div></section>' +
       '<button class="signout" data-out>Sign out</button>';
     $('[data-out]').onclick = async function () { await sb.auth.signOut(); me = null; profile = null; profileCache = {}; go('#/'); };
     var comms = (await loadCommunities()).filter(function (c) { return c.state === 'member' || c.state === 'host'; });
+    var sv = await sb.from('event_saves').select('event_id, events(*)').eq('user_id', me.id).order('created_at', { ascending: false });
+    var sbx = $('#mysaved');
+    if (sbx) sbx.innerHTML = (sv.data || []).filter(function (x) { return x.events; }).map(function (x) { var e = x.events; return '<a class="list-card" style="gap:10px;justify-content:flex-start;padding:8px" href="#/e/' + e.id + '"><img src="' + esc(e.image_url) + '" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0"><span style="display:flex;flex-direction:column;gap:2px"><b>' + esc(e.title) + '</b><span class="muted">Event · ' + esc(evWhen(e)) + '</span></span></a>'; }).join('') || '<p class="muted" style="margin:0;font-size:14px">Save events from Discover and they show up here.</p>';
     var box = $('#mycomms'); if (!box) return;
     box.innerHTML = comms.length ? '<div class="comm-grid">' + comms.map(function (c) { return '<a href="#/c/' + c.slug + '"><img src="' + esc(c.cover_url) + '" alt=""><b>' + esc(c.name) + '</b></a>'; }).join('') + '</div>'
       : '<a class="list-card" href="#/communities"><span>Find communities to join</span><span style="color:var(--grey)">›</span></a>';
@@ -757,6 +769,125 @@
       if (r.error) { this.disabled = false; this.textContent = 'Send my idea'; $('#err').textContent = r.error.message; return; }
       toast('idea sent. we\'ll reach out soon.'); go('#/communities');
     };
+  }
+
+  // ---------- discover ----------
+  var VIBES = [['wellness', 'wellness.jpg'], ['pop-up', 'popup.jpg'], ['rooftop', 'rooftop.jpg'], ['creative', 'creative.jpg'], ['book', 'book.jpg'], ['faith', 'faith.jpg'], ['career', 'career.jpg']];
+  var IMG = 'https://bb7112.github.io/momentswaitlist/images/';
+  var eventCache = {};
+  function evWhen(e) {
+    var d = new Date(e.starts_at);
+    return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase();
+  }
+  function evLine(e) { return [evWhen(e), e.neighborhood, e.price_label].filter(Boolean).join(' · '); }
+  async function getEvents(ids) {
+    var need = ids.filter(function (id, i) { return id && !eventCache[id] && ids.indexOf(id) === i; });
+    if (need.length) {
+      var r = await sb.from('events').select('*').in('id', need);
+      (r.data || []).forEach(function (e) { eventCache[e.id] = e; });
+    }
+  }
+  function eventCard(e) {
+    if (!e) return '';
+    return '<a class="ev-attach" href="#/e/' + e.id + '"><img src="' + esc(e.image_url) + '" alt="">' +
+      '<span class="ev-attach-info"><span class="k">' + esc(evWhen(e).toUpperCase()) + '</span><b>' + esc(e.title) + '</b><span class="s">' + esc([e.neighborhood, e.price_label].filter(Boolean).join(' · ')) + '</span></span></a>';
+  }
+  async function mySaves() {
+    var r = await sb.from('event_saves').select('event_id').eq('user_id', me.id);
+    var s = {}; (r.data || []).forEach(function (x) { s[x.event_id] = 1; }); return s;
+  }
+  async function toggleSave(id, saved) {
+    var r = saved ? await sb.from('event_saves').delete().eq('user_id', me.id).eq('event_id', id)
+      : await sb.from('event_saves').insert({ user_id: me.id, event_id: id });
+    if (r.error) { toast('Couldn\'t save. Try again.'); return saved; }
+    toast(saved ? 'removed from saved.' : 'saved to your account.'); return !saved;
+  }
+  function shareEvent(e) {
+    var url = location.origin + location.pathname + '#/e/' + e.id;
+    if (navigator.share) navigator.share({ title: e.title, url: url }).catch(function () {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast('link copied.'); });
+  }
+
+  async function viewDiscover() {
+    loading('discover');
+    var r = await sb.from('events').select('*').gte('starts_at', new Date(Date.now() - 3 * 3600e3).toISOString()).order('starts_at').limit(100);
+    var events = r.data || []; events.forEach(function (e) { eventCache[e.id] = e; });
+    var saves = await mySaves();
+    var nr = await sb.from('notes').select('event_id').not('event_id', 'is', null);
+    var going = {}; (nr.data || []).forEach(function (n) { going[n.event_id] = (going[n.event_id] || 0) + 1; });
+    var when = 'all', vibe = null, q = '';
+    app.innerHTML = '<header class="bar plain" style="background:#fff"><div class="title">Discover</div><button class="icon-btn" data-search aria-label="Search events"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button></header>' +
+      '<div id="sbox" hidden style="padding:12px 16px 0"><label for="esearch" style="position:absolute;width:1px;height:1px;overflow:hidden">Search events</label><input id="esearch" class="search" placeholder="Search events" autocomplete="off"></div>' +
+      '<div id="dlist" style="padding-top:14px;display:flex;flex-direction:column;gap:18px"></div>';
+    function inWindow(e) {
+      var s = new Date(e.starts_at), now = new Date();
+      var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      var dayDiff = Math.floor((new Date(s.getFullYear(), s.getMonth(), s.getDate()) - today) / 864e5);
+      if (when === 'tonight') return dayDiff === 0;
+      if (when === 'week') return dayDiff >= 0 && dayDiff < 7;
+      if (when === 'weekend') {
+        var dow = now.getDay(), toFri = (5 - dow + 7) % 7; if (dow === 6) toFri = -1; if (dow === 0) toFri = -2;
+        return dayDiff >= Math.max(0, toFri) && dayDiff <= toFri + 2;
+      }
+      return true;
+    }
+    function draw() {
+      var list = events.filter(function (e) { return inWindow(e) && (!vibe || e.vibe === vibe) && (!q || (e.title + ' ' + e.neighborhood + ' ' + e.vibe + ' ' + (e.description || '')).toLowerCase().indexOf(q) > -1); });
+      var feat = list.filter(function (e) { return e.featured; });
+      $('#dlist').innerHTML =
+        '<div class="pill-row">' + [['all', 'All'], ['tonight', 'Tonight'], ['weekend', 'This weekend'], ['week', 'This week']].map(function (p) { return '<button class="fpill' + (when === p[0] ? ' on' : '') + '" data-when="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
+        '<section style="display:flex;flex-direction:column;gap:10px"><b style="font-size:16px;padding:0 16px">Events by vibe</b><div class="vibe-row">' +
+        VIBES.map(function (v) { return '<button class="vibe' + (vibe === v[0] ? ' on' : '') + '" data-vibe="' + v[0] + '"><img src="' + IMG + v[1] + '" alt="">' + v[0] + '</button>'; }).join('') + '</div></section>' +
+        (feat.length ? '<section style="display:flex;flex-direction:column;gap:10px"><b style="font-size:16px;padding:0 16px">Featured this week</b><div class="feat-row">' +
+          feat.map(function (e) { return '<a class="feat" href="#/e/' + e.id + '"><img src="' + esc(e.image_url) + '" alt=""><b>' + esc(e.title) + '</b><span>' + esc(evLine(e)) + '</span></a>'; }).join('') + '</div></section>' : '') +
+        '<section class="csec"><b>Coming up</b>' +
+        (list.length ? list.map(function (e) {
+          return '<div class="ev-row"><a class="ev-link" href="#/e/' + e.id + '"><img src="' + esc(e.image_url) + '" alt="">' +
+            '<span class="t"><b>' + esc(e.title) + '</b><span>' + esc(evLine(e)) + '</span><span>' + (going[e.id] ? going[e.id] + (going[e.id] === 1 ? ' note' : ' notes') + ' from people going' : 'Posted by ' + esc(e.posted_by)) + '</span></span></a>' +
+            '<button class="save-btn' + (saves[e.id] ? ' on' : '') + '" data-save="' + e.id + '">' + (saves[e.id] ? 'Saved' : 'Save') + '</button></div>';
+        }).join('') : '<p class="empty" style="padding:24px 8px">Nothing here yet. Try another day or vibe.</p>') + '</section>';
+      $$('[data-when]').forEach(function (b) { b.onclick = function () { when = b.dataset.when; draw(); }; });
+      $$('[data-vibe]').forEach(function (b) { b.onclick = function () { vibe = vibe === b.dataset.vibe ? null : b.dataset.vibe; draw(); }; });
+      $$('[data-save]').forEach(function (b) { b.onclick = async function () { var id = b.dataset.save; saves[id] = (await toggleSave(id, !!saves[id])) ? 1 : 0; if (!saves[id]) delete saves[id]; draw(); }; });
+    }
+    draw();
+    $('[data-search]').onclick = function () { var s = $('#sbox'); s.hidden = !s.hidden; if (!s.hidden) $('#esearch').focus(); };
+    $('#esearch').oninput = function () { q = this.value.trim().toLowerCase(); draw(); };
+  }
+
+  async function viewEvent(id) {
+    loading();
+    var r = await sb.from('events').select('*').eq('id', id).maybeSingle();
+    var e = r.data;
+    if (!e) { app.innerHTML = backBar('#/discover', '') + '<p class="empty">This event isn\'t available anymore.</p>'; return; }
+    eventCache[e.id] = e;
+    var saves = await mySaves(), saved = !!saves[e.id];
+    var nr = await sb.from('notes').select('*, note_members(user_id)').eq('event_id', id).order('created_at', { ascending: false });
+    var notes = nr.data || [];
+    var ids = []; notes.forEach(function (n) { ids.push(n.author_id); (n.note_members || []).forEach(function (m) { ids.push(m.user_id); }); });
+    await getProfiles(ids);
+    var d = new Date(e.starts_at), end = e.ends_at ? new Date(e.ends_at) : null;
+    var t = function (x) { return x.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase(); };
+    setChrome(null);
+    app.innerHTML = '<div class="ev-hero"><img src="' + esc(e.image_url) + '" alt=""><a class="c-back" href="javascript:history.back()" aria-label="Back">' + icon('back') + '</a></div>' +
+      '<div style="padding:16px 16px 120px;display:flex;flex-direction:column;gap:14px">' +
+      '<div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--grey2);font-weight:600;letter-spacing:.3px">' + esc((e.vibe + ' · posted by ' + e.posted_by).toUpperCase()) + '</span>' +
+      '<b style="font-size:24px">' + esc(e.title) + '</b>' +
+      '<span style="font-size:14px;color:var(--grey)">' + esc(d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + t(d) + (end ? ' to ' + t(end) : '')) + '</span>' +
+      '<span style="font-size:14px;color:var(--grey)">' + esc([e.neighborhood, e.address].filter(Boolean).join(' · ')) + '</span></div>' +
+      (e.description ? '<p style="margin:0;font-size:14px;line-height:1.45;color:var(--ink2)">' + esc(e.description) + '</p>' : '') +
+      '<div class="ev-actions"><a href="#/new/' + e.id + '"><svg class="ico" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>Reshare to Home</a>' +
+      '<button data-save-one>' + icon('save') + '<span id="savelbl">' + (saved ? 'Saved' : 'Save') + '</span></button>' +
+      '<button data-share-one>' + icon('send') + 'Share</button></div>' +
+      '<section style="display:flex;flex-direction:column;gap:8px"><b style="font-size:15px">People looking for company (' + notes.length + ')</b>' +
+      (notes.length ? notes.map(function (n) {
+        var a = profileCache[n.author_id] || {}, st = noteState(n);
+        return '<a class="company" href="#/note/' + n.id + '"><span style="font-size:13px"><b>' + esc(a.first_name || '') + '</b> <span class="muted">· ' + ago(n.created_at) + '</span></span><span style="font-size:14px">' + esc(n.body) + '</span><span style="font-size:12px;color:var(--grey)">' + (st.joined ? 'You\'re going' : st.left ? st.left + ' of ' + n.spots + ' spots left · Join' : 'Full') + '</span></a>';
+      }).join('') : '<p class="muted" style="margin:0;font-size:14px">No one yet. Reshare it to Home and find someone to go with.</p>') + '</section></div>' +
+      '<div class="ticket-bar"><div style="display:flex;flex-direction:column;flex:1"><b style="font-size:16px">' + esc(e.price_label) + '</b><span style="font-size:12px;color:var(--grey2)">' + (e.ticket_source ? 'Tickets on ' + esc(e.ticket_source) : 'Tickets with the host') + '</span></div>' +
+      (e.ticket_url ? '<a class="btn black" style="font-size:15px;padding:13px 22px" href="' + esc(e.ticket_url) + '" target="_blank" rel="noopener">Get tickets ↗</a>' : '') + '</div>';
+    $('[data-save-one]').onclick = async function () { saved = await toggleSave(e.id, saved); $('#savelbl').textContent = saved ? 'Saved' : 'Save'; };
+    $('[data-share-one]').onclick = function () { shareEvent(e); };
   }
 
   // chat route with optional "/joined" flag
