@@ -191,13 +191,12 @@
         '<div class="field"><label class="lab" for="fn">First name</label><input class="input" id="fn" maxlength="40" autocomplete="given-name" value="' + esc(draft.first_name || '') + '"></div>' +
         '<div class="field"><span class="lab">Age</span><div class="choices">' + choiceList('age', AGES, draft.age_range) + '</div><span class="hint">You must be 21 or older.</span></div>' +
         '<div class="field"><label class="lab" for="bio">Short bio <i>(optional)</i></label><textarea class="input" id="bio" rows="3" maxlength="300" placeholder="new in miami, love pilates, matcha and wine nights">' + esc(draft.bio || '') + '</textarea></div>' +
-        '<label class="confirm"><input type="checkbox" id="ok"' + (draft.ok ? ' checked' : '') + '><span>I confirm I\'m a woman, 21 or older. This app is for women only.</span></label>');
+        '');
       $('[data-next]').onclick = function () {
         var name = $('#fn').value.trim(), age = ($('[name=age]:checked') || {}).value;
         if (!name) return err('Add your first name.');
         if (!age) return err('Pick your age.');
-        if (!$('#ok').checked) return err('Moments is for women 21 and up.');
-        draft.first_name = name; draft.age_range = age; draft.bio = $('#bio').value.trim(); draft.ok = true; go('#/join/2');
+        draft.first_name = name; draft.age_range = age; draft.bio = $('#bio').value.trim(); go('#/join/2');
       };
     } else if (step === 2) {
       app.innerHTML = stepFrame(2, 'Add your photos', 'At least one where your face is clear. The first one is your profile photo.', '<div class="photo-grid" id="slots"></div>');
@@ -445,7 +444,8 @@
     var msgs = r.data || [];
     var going = st.members.map(function (u) { return profileCache[u]; }).filter(Boolean);
     app.innerHTML = '<header class="bar"><a class="icon-btn" href="#/chats" aria-label="Back">' + icon('back') + '</a>' +
-      '<a href="#/note/' + id + '" style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0"><b class="clip" style="font-size:16px">' + esc(note.body) + '</b><span style="font-size:12px;color:var(--grey2)">' + st.guests.length + ' of ' + note.spots + ' joined · group chat</span></a></header>' +
+      '<a href="#/note/' + id + '" style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0"><b class="clip" style="font-size:16px">' + esc(note.body) + '</b><span style="font-size:12px;color:var(--grey2)">' + st.guests.length + ' of ' + note.spots + ' joined · group chat</span></a>' +
+      (st.mine ? '' : '<button class="btn outline" style="font-size:12px;padding:6px 12px;color:var(--grey)" data-leave-chat>Leave</button>') + '</header>' +
       '<div class="pinned"><span class="k">PINNED NOTE</span><span style="font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere">' + esc(note.body) + '</span>' +
       '<div style="display:flex;align-items:center;gap:6px"><div class="faces">' + going.slice(0, 4).map(function (p) { return avatar(p, 24); }).join('') + '</div>' +
       '<span style="font-size:12px;color:var(--grey2)">' + esc(going.map(function (p) { return p.id === me.id ? 'you' : p.first_name; }).join(', ')) + ' · ' + (st.left ? st.left + ' spots left' : 'full') + '</span></div></div>' +
@@ -467,6 +467,10 @@
     }
     msgs.forEach(add);
     window.scrollTo(0, document.body.scrollHeight);
+    if ($('[data-leave-chat]')) $('[data-leave-chat]').onclick = async function () {
+      if (!confirm('Leave this plan and its chat? Your spot opens up for someone else.')) return;
+      await sb.from('note_members').delete().eq('note_id', id).eq('user_id', me.id); toast('you left the plan.'); go('#/chats');
+    };
     chatChannel = sb.channel('chat-' + id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'note_id=eq.' + id }, async function (payload) {
       await getProfiles([payload.new.user_id]); add(payload.new); window.scrollTo(0, document.body.scrollHeight);
     }).subscribe();
@@ -596,7 +600,7 @@
     $$('[data-leave-c]').forEach(function (b) {
       b.onclick = async function (e) {
         e.preventDefault();
-        if (!confirm('Leave this community?')) return;
+        if (!confirm('Leave this community and its chat? You can join again later.')) return;
         await sb.from('community_members').delete().eq('community_id', b.dataset.leaveC).eq('user_id', me.id);
         toast('you left the community.'); route();
       };
@@ -686,7 +690,9 @@
     var msgs = r.data || [];
     await getProfiles(msgs.map(function (m) { return m.user_id; }).filter(Boolean));
     setChrome(null);
-    app.innerHTML = commHeader(c, 'chat') + '<div class="thread" id="thread">' + (msgs.length ? '' : '<span class="sys">Say hi to the community</span>') + '</div>' +
+    app.innerHTML = commHeader(c, 'chat') +
+      (c.state === 'member' ? '<div style="display:flex;justify-content:flex-end;padding:8px 12px 0"><button class="btn outline" style="font-size:12px;padding:6px 12px;color:var(--grey)" data-leave-c="' + c.id + '">Leave chat</button></div>' : '') +
+      '<div class="thread" id="thread">' + (msgs.length ? '' : '<span class="sys">Say hi to the community</span>') + '</div>' +
       '<div class="composer"><form><label for="cmsg" style="position:absolute;width:1px;height:1px;overflow:hidden">Message</label><input id="cmsg" name="body" maxlength="1000" placeholder="Message ' + esc(c.name) + '" autocomplete="off"><button class="send" aria-label="Send">' + icon('send') + '</button></form></div>';
     var box = $('#thread'), seen = {};
     function add(m) {
@@ -703,6 +709,7 @@
     }
     msgs.forEach(add);
     window.scrollTo(0, document.body.scrollHeight);
+    bindCommBtns();
     chatChannel = sb.channel('cchat-' + c.id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_messages', filter: 'community_id=eq.' + c.id }, async function (payload) {
       if (payload.new.user_id) await getProfiles([payload.new.user_id]);
       add(payload.new); window.scrollTo(0, document.body.scrollHeight);
