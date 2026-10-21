@@ -885,9 +885,11 @@
         return '<a class="company" href="#/note/' + n.id + '"><span style="font-size:13px"><b>' + esc(a.first_name || '') + '</b> <span class="muted">· ' + ago(n.created_at) + '</span></span><span style="font-size:14px">' + esc(n.body) + '</span><span style="font-size:12px;color:var(--grey)">' + (st.joined ? 'You\'re going' : st.left ? st.left + ' of ' + n.spots + ' spots left · Join' : 'Full') + '</span></a>';
       }).join('') : '<p class="muted" style="margin:0;font-size:14px">No one yet. Reshare it to Home and find someone to go with.</p>') + '</section></div>' +
       '<div class="ticket-bar"><div style="display:flex;flex-direction:column;flex:1"><b style="font-size:16px">' + esc(e.price_label) + '</b><span style="font-size:12px;color:var(--grey2)">' + (e.ticket_source ? 'Tickets on ' + esc(e.ticket_source) : 'Tickets with the host') + '</span></div>' +
-      (e.ticket_url ? '<a class="btn black" style="font-size:15px;padding:13px 22px" href="' + esc(e.ticket_url) + '" target="_blank" rel="noopener">Get tickets ↗</a>' : '') + '</div>';
+      (e.ticket_url ? '<a class="btn black" style="font-size:15px;padding:13px 22px" href="' + esc(e.ticket_url) + '" target="_blank" rel="noopener" data-ticket>Get tickets ↗</a>' : '') + '</div>';
     $('[data-save-one]').onclick = async function () { saved = await toggleSave(e.id, saved); $('#savelbl').textContent = saved ? 'Saved' : 'Save'; };
     $('[data-share-one]').onclick = function () { shareEvent(e); };
+    var tk = $('[data-ticket]');
+    if (tk) tk.onclick = function () { if (me) sb.from('ticket_clicks').insert({ user_id: me.id, event_id: e.id }).then(function () {}); };
   }
 
   // chat route with optional "/joined" flag
