@@ -112,8 +112,12 @@
     if (/access_token|error_description/.test(h)) h = '/';
     var parts = h.split('/').filter(Boolean);
     window.scrollTo(0, 0);
+    // remember a shared link (community, event, plan) so new people land there after sign up
+    if ((!me || !profile || !profile.rules_accepted_at) && /^(c|e|note)$/.test(parts[0] || '')) { try { localStorage.setItem('moments_next', '#' + h); } catch (e) {} }
     if (!me) return viewWelcome();
     if (!profile || !profile.rules_accepted_at) return viewOnboarding(parts[0] === 'join' ? Number(parts[1]) || 1 : 1);
+    var next = null; try { next = localStorage.getItem('moments_next'); localStorage.removeItem('moments_next'); } catch (e) {}
+    if (next && next !== '#' + h) return go(next);
     switch (parts[0]) {
       case 'new': return viewNewNote(parts[1]);
       case 'e': return viewEvent(parts[1]);
