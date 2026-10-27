@@ -573,7 +573,8 @@
   // ---------- communities ----------
   var COMM_COLS = 'id, slug, name, bio, cover_url, is_private, host_id, host_name, base_members, created_at';
   async function loadCommunities() {
-    var c = await sb.from('communities').select(COMM_COLS).order('base_members', { ascending: false });
+    var c = await sb.from('communities').select(COMM_COLS + ', avatar_url, instagram, website').order('base_members', { ascending: false });
+    if (c.error) c = await sb.from('communities').select(COMM_COLS).order('base_members', { ascending: false }); // before 07 SQL
     var m = await sb.from('community_members').select('community_id, user_id, status');
     var list = c.data || [], mem = m.data || [];
     list.forEach(function (x) {
@@ -648,10 +649,11 @@
   function commHeader(c, tab) {
     var canSeeChat = c.state === 'member' || c.state === 'host';
     return '<div class="c-cover"><img src="' + esc(c.cover_url) + '" alt=""><a class="c-back" href="#/communities" aria-label="Back">' + icon('back') + '</a></div>' +
-      '<div class="c-head"><div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:-30px"><img class="c-icon" src="' + esc(c.cover_url) + '" alt="">' + commBtn(c) + '</div>' +
+      '<div class="c-head"><div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:-30px"><img class="c-icon" src="' + esc(c.avatar_url || c.cover_url) + '" alt="">' + commBtn(c) + '</div>' +
       '<b style="font-size:20px">' + esc(c.name) + '</b>' +
       '<span style="font-size:13px;color:var(--grey)">Hosted by ' + esc(c.host_name) + ' · ' + count(c.members) + ' · ' + (c.is_private ? 'Private' : 'Public') + '</span>' +
-      (c.bio ? '<p style="margin:0;font-size:14px;line-height:1.4;color:var(--ink2)">' + esc(c.bio) + '</p>' : '') + '</div>' +
+      (c.bio ? '<p style="margin:0;font-size:14px;line-height:1.4;color:var(--ink2)">' + esc(c.bio) + '</p>' : '') +
+      (c.instagram ? '<a href="https://www.instagram.com/' + encodeURIComponent(c.instagram) + '/" target="_blank" rel="noopener" style="font-size:13px;font-weight:600;color:var(--wine)">@' + esc(c.instagram) + ' ↗</a>' : '') + '</div>' +
       '<div class="c-tabs"><a href="#/c/' + c.slug + '" class="' + (tab === 'feed' ? 'on' : '') + '">Feed</a><a href="#/c/' + c.slug + '/chat" class="' + (tab === 'chat' ? 'on' : '') + '">Chat' + (canSeeChat ? '' : ' 🔒') + '</a></div>';
   }
 
@@ -661,7 +663,10 @@
     if (!c) { app.innerHTML = backBar('#/communities', '') + '<p class="empty">Community not found.</p>'; return; }
     var r = await sb.from('community_posts').select('*').eq('community_id', c.id).order('created_at', { ascending: false }).limit(50);
     var posts = r.data || [];
+    var er = await sb.from('events').select('*').eq('community_id', c.id).gte('starts_at', new Date().toISOString()).order('starts_at').limit(10);
+    var evs = er.data || [];
     app.innerHTML = commHeader(c, 'feed') +
+      (evs.length ? '<div style="padding:12px 12px 0;display:flex;flex-direction:column;gap:8px"><b style="font-size:15px">Coming up</b>' + evs.map(eventCard).join('') + '</div>' : '') +
       '<div style="padding:12px 12px 0;display:flex;flex-direction:column;gap:12px">' +
       (c.state === 'host' ? '<div class="c-post" style="gap:10px"><b style="font-size:14px">Post to your community</b><textarea class="input" id="cpost" rows="3" maxlength="1000" placeholder="share an update or a plan"></textarea><button class="btn black" style="padding:10px;font-size:14px" data-cpost>Post</button></div>' : '<span style="font-size:12px;color:var(--grey2)">Only the host posts here</span>') +
       (posts.length ? posts.map(function (p) {
