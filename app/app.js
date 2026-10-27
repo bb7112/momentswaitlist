@@ -296,7 +296,7 @@
     var a = profileCache[n.author_id] || {};
     var traveling = a.where_status === 'traveling';
     return '<article class="post">' +
-      '<div class="post-head"><a href="#/u/' + n.author_id + '">' + avatar(a, 44) + '</a><div style="display:flex;flex-direction:column;gap:2px;min-width:0">' +
+      '<div class="post-head"><a href="#/u/' + n.author_id + '">' + avatar(a, 40) + '</a><div style="display:flex;flex-direction:column;gap:2px;min-width:0">' +
       '<a class="post-name" href="#/u/' + n.author_id + '">' + esc(a.first_name || 'someone') + '</a>' +
       '<span class="post-meta">' + esc([a.age_range, traveling ? null : a.neighborhood, ago(n.created_at)].filter(Boolean).join(' · ')) + '</span>' +
       (traveling ? '<span class="badge wine" style="align-self:flex-start;font-size:11px;padding:2px 8px">✈ Visiting Miami</span>' : '') + '</div></div>' +
