@@ -81,6 +81,34 @@
   function loading(tab) { setChrome(tab || null); app.innerHTML = '<div class="spinner" role="status" aria-label="Loading"></div>'; }
   function stopChat() { if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; } }
   function soon(what) { toast(what + ' are coming soon.'); }
+
+  // ---------- report ----------
+  var REPORT_REASONS = ['Fake profile', 'Not a woman or under 21', 'Harassment or rude', 'Spam or selling', 'Feels unsafe', 'Something else'];
+  function openReport(type, targetId, userId) {
+    var bg = document.createElement('div');
+    bg.className = 'report-bg';
+    bg.innerHTML = '<div class="sheet" role="dialog" aria-label="Report"><b style="font-size:18px">Report ' + (type === 'note' ? 'this note' : 'this profile') + '</b>' +
+      '<span style="font-size:14px;color:var(--grey)">Only the Moments team sees reports. She won\'t know it was you.</span>' +
+      '<div style="display:flex;flex-direction:column;gap:8px">' + REPORT_REASONS.map(function (r) { return '<label class="report-opt"><input type="radio" name="rr" value="' + esc(r) + '"> ' + esc(r) + '</label>'; }).join('') + '</div>' +
+      '<textarea class="input" id="rdet" rows="2" maxlength="500" placeholder="anything else we should know (optional)"></textarea>' +
+      '<div style="display:flex;gap:8px"><button class="btn outline big" data-rcancel style="flex:1">Cancel</button><button class="btn black big" data-rsend style="flex:1">Send report</button></div></div>';
+    document.body.appendChild(bg);
+    bg.onclick = function (e) { if (e.target === bg) bg.remove(); };
+    bg.querySelector('[data-rcancel]').onclick = function () { bg.remove(); };
+    bg.querySelector('[data-rsend]').onclick = async function () {
+      var pick = bg.querySelector('[name=rr]:checked');
+      if (!pick) { toast('Pick a reason.'); return; }
+      this.disabled = true;
+      var r = await sb.from('reports').insert({ reporter_id: me.id, target_type: type, target_id: targetId, reported_user_id: userId, reason: pick.value, details: bg.querySelector('#rdet').value.trim() || null });
+      if (r.error) { this.disabled = false; toast('Couldn\'t send. Try again.'); return; }
+      bg.remove(); toast('thank you. we\'ll review it.');
+    };
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-report]');
+    if (!b) return;
+    var k = b.dataset.report.split('|'); openReport(k[0], k[1], k[2]);
+  });
   function shareNote(id) {
     var url = location.origin + location.pathname + '#/note/' + id;
     if (navigator.share) navigator.share({ title: 'a plan on moments', url: url }).catch(function () {});
@@ -115,6 +143,7 @@
     // remember a shared link (community, event, plan) so new people land there after sign up
     if ((!me || !profile || !profile.rules_accepted_at) && /^(c|e|note)$/.test(parts[0] || '')) { try { localStorage.setItem('moments_next', '#' + h); } catch (e) {} }
     if (!me) return viewWelcome();
+    if (profile && profile.banned_at) { setChrome(null); app.innerHTML = '<div class="soon" style="padding:80px 24px;text-align:center;display:flex;flex-direction:column;gap:12px"><b style="font-size:20px">Your account is paused</b><p style="margin:0;color:var(--grey)">Something you shared went against the Moments rules, so posting, chats and joining are paused. If you think this is a mistake, email us.</p></div>'; return; }
     if (!profile || !profile.rules_accepted_at) return viewOnboarding(parts[0] === 'join' ? Number(parts[1]) || 1 : 1);
     var next = null; try { next = localStorage.getItem('moments_next'); localStorage.removeItem('moments_next'); } catch (e) {}
     if (next && next !== '#' + h) return go(next);
@@ -376,7 +405,7 @@
     await getEvents([n.event_id]);
     a = profileCache[n.author_id] || {};
     var going = st.members.map(function (u) { return profileCache[u]; }).filter(Boolean);
-    app.innerHTML = backBar('#/', 'Note', st.mine ? '' : '<button class="act" data-soon="Reports">··· Report</button>') +
+    app.innerHTML = backBar('#/', 'Note', st.mine ? '' : '<button class="act" data-report="note|' + n.id + '|' + n.author_id + '">··· Report</button>') +
       '<article class="card-white">' +
       '<a class="person" href="#/u/' + n.author_id + '">' + avatar(a, 40) + '<span style="font-size:14px"><b>' + esc(a.first_name || '') + '</b> <span class="muted">· ' + esc([a.age_range, place(a), ago(n.created_at)].join(' · ')) + '</span></span></a>' +
       '<p style="margin:0;font-size:16px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere">' + esc(n.body) + '</p>' +
@@ -523,7 +552,7 @@
     var r = await sb.from('notes').select('*, note_members(user_id)').eq('author_id', id).order('created_at', { ascending: false }).limit(10);
     var notes = r.data || [];
     app.innerHTML = '<header class="bar" style="border:0;justify-content:space-between"><a class="icon-btn" href="javascript:history.back()" aria-label="Back">' + icon('back') + '</a>' +
-      '<div style="display:flex;gap:4px"><button class="act" data-soon="Blocking">Block</button><button class="act" data-soon="Reports">Report</button></div></header>' +
+      '<div style="display:flex;gap:4px"><button class="act" data-soon="Blocking">Block</button>' + (id === me.id ? '' : '<button class="act" data-report="user|' + id + '|' + id + '">Report</button>') + '</div></header>' +
       '<div class="prof-top">' + avatar(p, 110) + '<b>' + esc(p.first_name) + '</b><span style="font-size:14px;color:var(--grey)">' + esc(p.age_range + ' · ' + place(p)) + '</span>' +
       (p.where_status === 'traveling' ? '<div class="chips"><span class="badge line">✈ Visiting Miami</span></div>' : '') +
       (p.bio ? '<p style="margin:0;font-size:14px;color:var(--ink2);line-height:1.4">' + esc(p.bio) + '</p>' : '') + '</div>' +

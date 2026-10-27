@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Moments Admin</title>
+<link rel="icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root { --ink: #1B1414; --grey: #6B6466; --grey2: #9A9395; --line: #EAE4E5; --band: #F6F2F0; --bg: #FCFAF9; --wine: #A32248; --wine-bright: #C0446A; --green: #2F7A4F; --red: #B3261E; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif; color: var(--ink); background: var(--bg); font-size: 14px; }
+a { color: inherit; }
+header.top { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.mark { font-weight: 700; font-size: 20px; letter-spacing: -.5px; }
+.mark span { color: var(--wine-bright); }
+.mark small { font-weight: 500; font-size: 12px; color: var(--grey2); letter-spacing: 0; margin-left: 6px; }
+nav.tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; }
+nav.tabs a { text-decoration: none; padding: 7px 12px; border-radius: 999px; color: var(--grey); white-space: nowrap; font-weight: 500; }
+nav.tabs a.on { background: var(--ink); color: #fff; }
+nav.tabs .count { background: var(--wine); color: #fff; border-radius: 999px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 80px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 24px 0 10px; }
+.sub { color: var(--grey); margin: 0 0 16px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.stat { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.stat b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--grey); font-size: 12px; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row img.th { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex: none; background: var(--band); }
+.row img.av { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; background: var(--band); }
+.row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .grow b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted { color: var(--grey); font-size: 12px; }
+.pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--band); color: var(--grey); font-weight: 600; }
+.pill.wine { background: #F7E3E9; color: var(--wine); }
+.pill.red { background: #FBE4E2; color: var(--red); }
+.pill.green { background: #E3F1E8; color: var(--green); }
+button, .btn { font: inherit; border-radius: 999px; padding: 8px 14px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+button.dark, .btn.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+button.wine { background: var(--wine); color: #fff; border-color: var(--wine); }
+button.danger { color: var(--red); }
+button:disabled { opacity: .5; cursor: default; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+input, select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #fff; width: 100%; color: var(--ink); }
+textarea { resize: vertical; min-height: 80px; }
+.search { max-width: 320px; }
+form.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
+form.grid .full { grid-column: 1 / -1; }
+form.grid label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--grey); }
+form.grid label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; font-weight: 500; }
+form.grid label.check input { width: auto; }
+.formfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 0 16px 16px; }
+.empty { padding: 28px 14px; text-align: center; color: var(--grey); }
+.gate { max-width: 520px; margin: 60px auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.gate pre { background: var(--band); border-radius: 10px; padding: 12px; white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 0; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 999px; z-index: 50; font-size: 13px; }
+.preview { width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px; margin-top: 6px; }
+@media (max-width: 640px) {
+  form.grid { grid-template-columns: 1fr; }
+  .row { flex-wrap: wrap; }
+  .row .actions { width: 100%; justify-content: flex-start; }
+}
+</style>
+</head>
+<body>
+<header class="top" id="top" hidden>
+  <div class="mark">moments<span>.</span><small>admin</small></div>
+  <nav class="tabs" id="tabs"></nav>
+  <a class="btn" href="./" style="padding:6px 12px;font-size:13px">Open app ↗</a>
+</header>
+<main id="main"><p class="empty">Loading…</p></main>
+<script src="config.js?v=202610271735"></script>
+<script src="admin.js?v=202610271735"></script>
+</body>
+</html>
