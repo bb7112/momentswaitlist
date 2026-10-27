@@ -573,8 +573,11 @@
   // ---------- communities ----------
   var COMM_COLS = 'id, slug, name, bio, cover_url, is_private, host_id, host_name, base_members, created_at';
   async function loadCommunities() {
-    var c = await sb.from('communities').select(COMM_COLS + ', avatar_url, instagram, website').order('base_members', { ascending: false });
+    var c = await sb.from('communities').select(COMM_COLS + ', avatar_url, instagram, website, position').order('base_members', { ascending: false });
+    if (c.error) c = await sb.from('communities').select(COMM_COLS + ', avatar_url, instagram, website').order('base_members', { ascending: false }); // before 09 SQL
     if (c.error) c = await sb.from('communities').select(COMM_COLS).order('base_members', { ascending: false }); // before 07 SQL
+    // pinned communities (position set) come first, then the rest by size
+    if (c.data) c.data.sort(function (x, y) { return (x.position == null ? 1e9 : x.position) - (y.position == null ? 1e9 : y.position); });
     var m = await sb.from('community_members').select('community_id, user_id, status');
     var list = c.data || [], mem = m.data || [];
     list.forEach(function (x) {
